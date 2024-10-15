@@ -1,1 +1,1 @@
-strcmp(root -> op, "+")
+=
