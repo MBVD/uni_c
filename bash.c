@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #define BUF_MAX 256
+#define min(X, Y) (((X) < (Y)) ? (X) : (Y))
 
 enum Type {
   LOGIC, OPERATION, REDIRECT
@@ -37,7 +38,7 @@ node* parse(char** commands){
 }
 
 int is_redirect(const char* c){
-  return !strcmp(c, "|") || !strcmp(c, ">") || !strcmp(c, "<");
+  return !strcmp(c, "|") || !strcmp(c, ">") || !strcmp(c, "<") || !strcmp(c, "<<") || !strcmp(c, ">>");
 }
 
 node* parse_redirect_expr(int *i, char** commands){
@@ -149,6 +150,7 @@ char** split(const char* s){
         continue;
       }else{
         tmp[tmp_i++] = ' ';
+        continue;
       }
     }
     tmp[tmp_i++] = s[i];
@@ -179,6 +181,95 @@ char* readline(){
   return buf;
 }
 
+char* command_main(const char* command){
+  char* tmp = malloc(BUF_MAX);
+  int sz = BUF_MAX, i = 0;
+  for (; command[i] != '\0' && command[i] != ' '; i++){
+    if (i > sz){
+      sz += sz;
+      tmp = realloc(tmp, sz);
+    }
+    tmp[i] = command[i];
+  }
+  tmp[i] = '\0';
+  return tmp;
+}
+
+char** command_argv(const char* command) {
+  int argv_size = 1;
+  char** argv = malloc((argv_size + 1) * sizeof(char*));
+  int argv_i = 0;
+  char* tmp = malloc(BUF_MAX);
+  int tmp_i = 0;
+  for (int i = 0; command[i] != '\0'; i++){
+    if (command[i] == ' '){
+      while(command[++i] == ' ');
+      i--;
+      tmp[tmp_i] = '\0';
+      argv[argv_i] = malloc(strlen(tmp) + 1);
+      strcpy(argv[argv_i++], tmp);
+      tmp_i = 0;
+    }else{
+      tmp[tmp_i++] = command[i];
+    }
+  }
+  tmp[tmp_i] = '\0';
+  argv[argv_i] = malloc(strlen(tmp) + 1);
+  strcpy(argv[argv_i++], tmp);
+  argv[argv_i] = NULL;
+  return argv;
+}
+
+int execute_command(const char* command) {
+  int status;
+  pid_t pid = fork();
+  if (pid == 0) {
+    execvp(command_main(command), command_argv(command));
+    exit(EXIT_FAILURE);
+  } else if (pid < 0) {
+    perror("fork creation fail");
+    return -1;
+  } else {
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status)) {
+      return WEXITSTATUS(status);
+    } else {
+      return -1;
+    }
+  }
+}
+
+int execute_tree(node* root) {
+  if (root == NULL) return 0;
+
+  if (root->type == OPERATION) {
+    return execute_command(root->command);
+  } else if (root->type == LOGIC) {
+    int left_status = execute_tree(root->left);
+    if (!strcmp(root->op, "&&")) {
+      if (left_status == 0) {
+        return execute_tree(root->right);
+      } else {
+        return left_status;
+      }
+    } else if (!strcmp(root->op, "||")) {
+      if (left_status != 0) {
+        return execute_tree(root->right);
+      } else {
+        return left_status;
+      }
+    } else if (!strcmp(root->op, ";")) {
+      execute_tree(root->left);
+      return execute_tree(root->right);
+    }
+  } else if (root->type == REDIRECT) {
+    if (!strcmp(root->op, "|")){
+      ;
+    }
+  }
+  return 0;
+}
+
 int main(){
   char* s1 = readline();
   char** splited = split(s1);
@@ -189,4 +280,6 @@ int main(){
   node* tree = parse(splited);
   print_tree(tree);
   printf("\n");
+  // execvp(command_main("git -v"), command_argv("git -v"));
+  execute_tree(tree);
 }
